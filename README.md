@@ -1,7 +1,7 @@
 
-# qBittorrent Client Library for Go
+# qBittorrent Go Client Library
 
-A Go client library for interacting with the [qBittorrent](https://www.qbittorrent.org/) Web API. This package provides a simple and efficient way to manage torrents programmatically using Go.
+A Go client library for interacting with the [qBittorrent](https://www.qbittorrent.org/) Web API.
 
 ## Features
 
@@ -41,9 +41,9 @@ if err != nil {
 }
 ```
 
-- `username`: Your qBittorrent Web UI username.
-- `password`: Your qBittorrent Web UI password.
-- `addr`: The address where qBittorrent is running (e.g., `"localhost"`).
+- `username`: Your qBittorrent Web UI username. Empty if none.
+- `password`: Your qBittorrent Web UI password. Empty if none.
+- `addr`: The address where qBittorrent is running (e.g., `"127.0.0.1"`).
 - `port`: The port number of the qBittorrent Web UI (e.g., `"8080"`).
 
 ### Adding a Torrent
@@ -110,10 +110,6 @@ for _, tracker := range trackers {
 ", tracker.URL, tracker.Status)
 }
 ```
-
-## Error Handling
-
-All methods return errors that should be handled appropriately. The errors provide context about what went wrong during the API calls.
 
 ## License
 
