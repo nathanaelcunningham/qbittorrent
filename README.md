@@ -121,4 +121,4 @@ Contributions are welcome! Please open an issue or submit a pull request for any
 
 ## Acknowledgments
 
-- [qBittorrent Web API Documentation](https://github.com/qbittorrent/qBittorrent/wiki/Web-API-Documentation)
+- [qBittorrent Web API Documentation](https://github.com/qbittorrent/qBittorrent/wiki#WebUI-API)
