@@ -15,9 +15,8 @@ import (
 type Client struct {
 	username string
 	password string
-	addr     string
-	port     string
 	client   *http.Client
+	baseURL  string
 }
 
 // TorrentInfo represents the structured information of a torrent from the qBittorrent API
@@ -79,23 +78,31 @@ type TrackerInfo struct {
 	Msg      string `json:"msg"`
 }
 
-// NewClient initializes a new qBittorrent client
-func NewClient(username, password, addr, port string) (*Client, error) {
-	client := &Client{
+// NewClient initializes a new qBittorrent client.
+// If httpClient is nil, http.DefaultClient is used.
+func NewClient(username, password, addr, port string, httpClient ...*http.Client) (*Client, error) {
+	// Use the provided http.Client if given, otherwise use http.DefaultClient
+	client := http.DefaultClient
+	if len(httpClient) > 0 && httpClient[0] != nil {
+		client = httpClient[0]
+	}
+
+	// Create and return the Client instance
+	qbClient := &Client{
 		username: username,
 		password: password,
-		addr:     addr,
-		port:     port,
-		client:   &http.Client{}, // Using default http.Client
+		client:   client,
+		baseURL:  fmt.Sprintf("http://%s:%s", addr, port),
 	}
 
 	// Authenticate if username and password are provided
 	if username != "" && password != "" {
-		if err := client.AuthLogin(); err != nil {
+		if err := qbClient.AuthLogin(); err != nil {
 			return nil, fmt.Errorf("AuthLogin error: %v", err)
 		}
 	}
-	return client, nil
+
+	return qbClient, nil
 }
 
 // AuthLogin logs in to the qBittorrent Web API
@@ -216,9 +223,15 @@ func (c *Client) doPostValues(endpoint string, data url.Values) ([]byte, error) 
 
 // doPost is a helper method for making POST requests to the qBittorrent API
 func (c *Client) doPost(endpoint string, body io.Reader, contentType string) ([]byte, error) {
-	apiURL := fmt.Sprintf("http://%s:%s%s", c.addr, c.port, endpoint)
+	// Use net/url to construct the full URL
+	apiURL, err := url.Parse(c.baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse base URL: %v", err)
+	}
 
-	req, err := http.NewRequest("POST", apiURL, body)
+	apiURL.Path = strings.TrimSuffix(apiURL.Path, "/") + endpoint
+
+	req, err := http.NewRequest("POST", apiURL.String(), body)
 	if err != nil {
 		return nil, fmt.Errorf("NewRequest error: %v", err)
 	}
@@ -230,23 +243,29 @@ func (c *Client) doPost(endpoint string, body io.Reader, contentType string) ([]
 	}
 	defer resp.Body.Close()
 
+	respBody, err := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
+		// ReadAll might have errored, we don't care about the error here
 		return nil, fmt.Errorf("unexpected response code: %d, response: %s", resp.StatusCode, string(respBody))
 	}
 
-	responseData, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("ReadAll error: %v", err)
 	}
-	return responseData, nil
+	return respBody, nil
 }
 
 // doGet is a helper method for making GET requests to the qBittorrent API with query parameters
 func (c *Client) doGet(endpoint string, query url.Values) ([]byte, error) {
-	apiURL := fmt.Sprintf("http://%s:%s%s", c.addr, c.port, endpoint)
+	// Use net/url to construct the full URL
+	apiURL, err := url.Parse(c.baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse base URL: %v", err)
+	}
 
-	req, err := http.NewRequest("GET", apiURL, nil)
+	apiURL.Path = strings.TrimSuffix(apiURL.Path, "/") + endpoint
+
+	req, err := http.NewRequest("GET", apiURL.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("NewRequest error: %v", err)
 	}
