@@ -17,6 +17,7 @@ type Client struct {
 	password string
 	client   *http.Client
 	baseURL  string
+	sid      string // store the SID cookie
 }
 
 // TorrentInfo represents the structured information of a torrent from the qBittorrent API
@@ -111,10 +112,20 @@ func (c *Client) AuthLogin() error {
 	data.Set("username", c.username)
 	data.Set("password", c.password)
 
-	_, err := c.doPostValues("/api/v2/auth/login", data)
+	resp, err := c.doPostResponse("/api/v2/auth/login", strings.NewReader(data.Encode()), "application/x-www-form-urlencoded")
 	if err != nil {
 		return fmt.Errorf("AuthLogin error: %v", err)
 	}
+	defer resp.Body.Close()
+
+	// Extract the SID cookie from the response
+	for _, cookie := range resp.Cookies() {
+		if cookie.Name == "SID" {
+			c.sid = cookie.Value
+			break
+		}
+	}
+
 	return nil
 }
 
@@ -216,43 +227,32 @@ func (c *Client) TorrentsTrackers(hash string) ([]TrackerInfo, error) {
 	return trackers, nil
 }
 
-// doPostValues is a helper method for making POST requests to the qBittorrent API with url.Values
-func (c *Client) doPostValues(endpoint string, data url.Values) ([]byte, error) {
-	return c.doPost(endpoint, strings.NewReader(data.Encode()), "application/x-www-form-urlencoded")
-}
-
-// doPost is a helper method for making POST requests to the qBittorrent API
-func (c *Client) doPost(endpoint string, body io.Reader, contentType string) ([]byte, error) {
-	// Use net/url to construct the full URL
-	apiURL, err := url.Parse(c.baseURL)
+// doPostResponse POSTs to qBittorrent and returns the HTTP response
+func (c *Client) doPostResponse(endpoint string, body io.Reader, contentType string) (*http.Response, error) {
+	req, err := http.NewRequest("POST", c.baseURL+endpoint, body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse base URL: %v", err)
-	}
-
-	apiURL.Path = strings.TrimSuffix(apiURL.Path, "/") + endpoint
-
-	req, err := http.NewRequest("POST", apiURL.String(), body)
-	if err != nil {
-		return nil, fmt.Errorf("NewRequest error: %v", err)
+		return nil, err
 	}
 	req.Header.Set("Content-Type", contentType)
+	if c.sid != "" {
+		req.AddCookie(&http.Cookie{Name: "SID", Value: c.sid})
+	}
+	return c.client.Do(req)
+}
 
-	resp, err := c.client.Do(req)
+// doPost makes POSTs to qBittorrent and returns the response body
+func (c *Client) doPost(endpoint string, body io.Reader, contentType string) ([]byte, error) {
+	resp, err := c.doPostResponse(endpoint, body, contentType)
 	if err != nil {
-		return nil, fmt.Errorf("HTTP request error: %v", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
+	return io.ReadAll(resp.Body)
+}
 
-	respBody, err := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		// ReadAll might have errored, we don't care about the error here
-		return nil, fmt.Errorf("unexpected response code: %d, response: %s", resp.StatusCode, string(respBody))
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("ReadAll error: %v", err)
-	}
-	return respBody, nil
+// doPostValues POSTs to qBittorrent with url.Values and returns the response body
+func (c *Client) doPostValues(endpoint string, data url.Values) ([]byte, error) {
+	return c.doPost(endpoint, strings.NewReader(data.Encode()), "application/x-www-form-urlencoded")
 }
 
 // doGet is a helper method for making GET requests to the qBittorrent API with query parameters
@@ -272,6 +272,10 @@ func (c *Client) doGet(endpoint string, query url.Values) ([]byte, error) {
 
 	if query != nil {
 		req.URL.RawQuery = query.Encode()
+	}
+
+	if c.sid != "" {
+		req.AddCookie(&http.Cookie{Name: "SID", Value: c.sid})
 	}
 
 	resp, err := c.client.Do(req)
