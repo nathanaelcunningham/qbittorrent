@@ -207,7 +207,7 @@ type TorrentsInfoParams struct {
 	Reverse  bool
 	Limit    int
 	Offset   int
-	Hashes   string
+	Hashes   []string
 }
 
 // TorrentsInfo retrieves a list of all torrents from the qBittorrent server
@@ -236,8 +236,8 @@ func (c *Client) TorrentsInfo(params ...*TorrentsInfoParams) ([]TorrentInfo, err
 		if params[0].Offset != 0 {
 			query.Set("offset", strconv.Itoa(params[0].Offset))
 		}
-		if params[0].Hashes != "" {
-			query.Set("hashes", params[0].Hashes)
+		if len(params[0].Hashes) > 0 {
+			query.Set("hashes", strings.Join(params[0].Hashes, "|"))
 		}
 	}
 

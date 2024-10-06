@@ -367,3 +367,119 @@ func TestIntegration_TorrentsInfo(t *testing.T) {
 		t.Errorf("Expected torrent name 'test torrent', got '%s'", torrents[0].Name)
 	}
 }
+func TestTorrentsInfo_HashesNil(t *testing.T) {
+	// Mock a successful response for the TorrentsInfo call
+	endpointResponses := map[string]mockResponse{
+		"/api/v2/auth/login": {statusCode: http.StatusOK, responseBody: "Ok."},
+		"/api/v2/torrents/info": {
+			statusCode:   http.StatusOK,
+			responseBody: `[{"name": "torrent1"}, {"name": "torrent2"}]`,
+		},
+	}
+	client, err := newMockClient(endpointResponses)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Test with Hashes nil
+	params := &TorrentsInfoParams{
+		Hashes: nil,
+	}
+	torrents, err := client.TorrentsInfo(params)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	if len(torrents) != 2 {
+		t.Errorf("Expected 2 torrents, got %d", len(torrents))
+	}
+}
+
+func TestTorrentsInfo_HashesEmpty(t *testing.T) {
+	// Mock a successful response for the TorrentsInfo call
+	endpointResponses := map[string]mockResponse{
+		"/api/v2/auth/login": {statusCode: http.StatusOK, responseBody: "Ok."},
+		"/api/v2/torrents/info": {
+			statusCode:   http.StatusOK,
+			responseBody: `[{"name": "torrent1"}, {"name": "torrent2"}]`,
+		},
+	}
+	client, err := newMockClient(endpointResponses)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Test with Hashes empty
+	params := &TorrentsInfoParams{
+		Hashes: []string{},
+	}
+	torrents, err := client.TorrentsInfo(params)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	if len(torrents) != 2 {
+		t.Errorf("Expected 2 torrents, got %d", len(torrents))
+	}
+}
+
+func TestTorrentsInfo_HashesSingle(t *testing.T) {
+	// Mock a successful response for the TorrentsInfo call
+	endpointResponses := map[string]mockResponse{
+		"/api/v2/auth/login": {statusCode: http.StatusOK, responseBody: "Ok."},
+		"/api/v2/torrents/info": {
+			statusCode:   http.StatusOK,
+			responseBody: `[{"name": "torrent1"}]`,
+		},
+	}
+	client, err := newMockClient(endpointResponses)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Test with a single hash
+	params := &TorrentsInfoParams{
+		Hashes: []string{"hash1"},
+	}
+	torrents, err := client.TorrentsInfo(params)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	if len(torrents) != 1 {
+		t.Errorf("Expected 1 torrent, got %d", len(torrents))
+	}
+	if torrents[0].Name != "torrent1" {
+		t.Errorf("Expected torrent name 'torrent1', got '%s'", torrents[0].Name)
+	}
+}
+
+func TestTorrentsInfo_HashesMultiple(t *testing.T) {
+	// Mock a successful response for the TorrentsInfo call
+	endpointResponses := map[string]mockResponse{
+		"/api/v2/auth/login": {statusCode: http.StatusOK, responseBody: "Ok."},
+		"/api/v2/torrents/info": {
+			statusCode:   http.StatusOK,
+			responseBody: `[{"name": "torrent1"}, {"name": "torrent2"}]`,
+		},
+	}
+	client, err := newMockClient(endpointResponses)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Test with multiple hashes
+	params := &TorrentsInfoParams{
+		Hashes: []string{"hash1", "hash2"},
+	}
+	torrents, err := client.TorrentsInfo(params)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	if len(torrents) != 2 {
+		t.Errorf("Expected 2 torrents, got %d", len(torrents))
+	}
+	if torrents[0].Name != "torrent1" {
+		t.Errorf("Expected torrent name 'torrent1', got '%s'", torrents[0].Name)
+	}
+	if torrents[1].Name != "torrent2" {
+		t.Errorf("Expected torrent name 'torrent2', got '%s'", torrents[1].Name)
+	}
+}
