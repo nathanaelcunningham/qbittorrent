@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -115,6 +116,9 @@ func (c *Client) AuthLogin() error {
 	resp, err := c.doPostResponse("/api/v2/auth/login", strings.NewReader(data.Encode()), "application/x-www-form-urlencoded")
 	if err != nil {
 		return fmt.Errorf("AuthLogin error: %v", err)
+	} else if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("AuthLogin error (%d): %s", resp.StatusCode, string(respBody))
 	}
 	defer resp.Body.Close()
 
@@ -194,9 +198,50 @@ func (c *Client) TorrentsDownload(infohash string) ([]byte, error) {
 	return c.doGet("/api/v2/torrents/file", url.Values{"hashes": {infohash}})
 }
 
+// TorrentsInfoParams holds the optional parameters for the TorrentsInfo method
+type TorrentsInfoParams struct {
+	Filter   string
+	Category string
+	Tag      string
+	Sort     string
+	Reverse  bool
+	Limit    int
+	Offset   int
+	Hashes   string
+}
+
 // TorrentsInfo retrieves a list of all torrents from the qBittorrent server
-func (c *Client) TorrentsInfo() ([]TorrentInfo, error) {
-	respData, err := c.doGet("/api/v2/torrents/info", nil)
+func (c *Client) TorrentsInfo(params ...*TorrentsInfoParams) ([]TorrentInfo, error) {
+	var query url.Values
+	if len(params) > 0 && params[0] != nil {
+		query = url.Values{}
+		if params[0].Filter != "" {
+			query.Set("filter", params[0].Filter)
+		}
+		if params[0].Category != "" {
+			query.Set("category", params[0].Category)
+		}
+		if params[0].Tag != "" {
+			query.Set("tag", params[0].Tag)
+		}
+		if params[0].Sort != "" {
+			query.Set("sort", params[0].Sort)
+		}
+		if params[0].Reverse {
+			query.Set("reverse", "true")
+		}
+		if params[0].Limit > 0 {
+			query.Set("limit", strconv.Itoa(params[0].Limit))
+		}
+		if params[0].Offset != 0 {
+			query.Set("offset", strconv.Itoa(params[0].Offset))
+		}
+		if params[0].Hashes != "" {
+			query.Set("hashes", params[0].Hashes)
+		}
+	}
+
+	respData, err := c.doGet("/api/v2/torrents/info", query)
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +292,13 @@ func (c *Client) doPost(endpoint string, body io.Reader, contentType string) ([]
 		return nil, err
 	}
 	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	} else if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("POST error (%d): %s", resp.StatusCode, string(respBody))
+	}
+	return respBody, nil
 }
 
 // doPostValues POSTs to qBittorrent with url.Values and returns the response body

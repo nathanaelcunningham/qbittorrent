@@ -189,29 +189,40 @@ func TestSetForceStart(t *testing.T) {
 }
 
 func TestTorrentsInfo(t *testing.T) {
-	responseBody := `[{"name":"test torrent","hash":"testhash","progress":0.5}]`
-	// Mock successful AuthLogin and TorrentsInfo responses
+	// Mock a successful response for the TorrentsInfo call
 	endpointResponses := map[string]mockResponse{
-		"/api/v2/auth/login":    {statusCode: http.StatusOK, responseBody: "Ok."},
-		"/api/v2/torrents/info": {statusCode: http.StatusOK, responseBody: responseBody},
+		"/api/v2/auth/login": {statusCode: http.StatusOK, responseBody: "Ok."},
+		"/api/v2/torrents/info": {
+			statusCode:   http.StatusOK,
+			responseBody: `[{"name": "torrent1"}, {"name": "torrent2"}]`,
+		},
 	}
-
 	client, err := newMockClient(endpointResponses)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
+	// Test without parameters
 	torrents, err := client.TorrentsInfo()
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
-
-	if len(torrents) != 1 {
-		t.Errorf("Expected 1 torrent, got %d", len(torrents))
+	if len(torrents) != 2 {
+		t.Errorf("Expected 2 torrents, got %d", len(torrents))
 	}
 
-	if torrents[0].Name != "test torrent" {
-		t.Errorf("Expected torrent name 'test torrent', got '%s'", torrents[0].Name)
+	// Test with parameters
+	params := &TorrentsInfoParams{
+		Filter:   "downloading",
+		Category: "sample category",
+		Sort:     "ratio",
+	}
+	torrents, err = client.TorrentsInfo(params)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	if len(torrents) != 2 {
+		t.Errorf("Expected 2 torrents, got %d", len(torrents))
 	}
 }
 
