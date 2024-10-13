@@ -12,6 +12,8 @@ import (
 // mockRoundTripper is used to mock http.Client responses and supports multiple endpoints
 type mockRoundTripper struct {
 	endpointResponses map[string]mockResponse
+	expectedRequests  []expectedRequest
+	requestIndex      int
 }
 
 // mockResponse represents a mock HTTP response for a given endpoint
@@ -21,8 +23,37 @@ type mockResponse struct {
 	err          error
 }
 
+// expectedRequest represents an expected HTTP request
+type expectedRequest struct {
+	method string
+	url    string
+	params url.Values
+}
+
 // RoundTrip implements the RoundTripper interface
 func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	if m.requestIndex >= len(m.expectedRequests) {
+		return nil, http.ErrHandlerTimeout
+	}
+
+	expected := m.expectedRequests[m.requestIndex]
+	if req.Method != expected.method || req.URL.Path != expected.url {
+		return nil, &url.Error{Op: "Get", URL: req.URL.String(), Err: http.ErrAbortHandler}
+	}
+
+	if expected.params != nil {
+		err := req.ParseForm()
+		if err != nil {
+			return nil, err
+		}
+		for key, values := range expected.params {
+			if req.Form.Get(key) != values[0] {
+				return nil, &url.Error{Op: "Get", URL: req.URL.String(), Err: http.ErrAbortHandler}
+			}
+		}
+	}
+
+	m.requestIndex++
 	response, ok := m.endpointResponses[req.URL.Path]
 	if !ok {
 		// Default to 404 Not Found if endpoint is not defined
@@ -41,10 +72,12 @@ func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	return resp, response.err
 }
 
-// helper function to create a mock client with predefined endpoint responses
-func newMockClient(endpointResponses map[string]mockResponse) (*Client, error) {
+// helper function to create a mock client with predefined endpoint responses and expected requests
+func newMockClient(endpointResponses map[string]mockResponse, expectedRequests []expectedRequest) (*Client, *mockRoundTripper, error) {
 	mockTransport := &mockRoundTripper{
 		endpointResponses: endpointResponses,
+		expectedRequests:  expectedRequests,
+		requestIndex:      0,
 	}
 
 	httpClient := &http.Client{
@@ -52,17 +85,26 @@ func newMockClient(endpointResponses map[string]mockResponse) (*Client, error) {
 	}
 
 	// Directly return the client and error from NewClient
-	return NewClient("testuser", "testpass", "localhost", "8080", httpClient)
+	client, err := NewClient("testuser", "testpass", "localhost", "8080", httpClient)
+	return client, mockTransport, err
 }
 
-func TestNewClient(t *testing.T) {
-	// Mock a successful response for the AuthLogin call
-	endpointResponses := map[string]mockResponse{
-		"/api/v2/auth/login": {statusCode: http.StatusOK, responseBody: "Ok."},
+func TestNewClientWithoutAuth(t *testing.T) {
+	// Test without authentication using a mock client
+	endpointResponses := map[string]mockResponse{}
+	expectedRequests := []expectedRequest{}
+
+	mockTransport := &mockRoundTripper{
+		endpointResponses: endpointResponses,
+		expectedRequests:  expectedRequests,
+		requestIndex:      0,
 	}
 
-	// Test without authentication
-	client, err := NewClient("", "", "localhost", "8080")
+	httpClient := &http.Client{
+		Transport: mockTransport,
+	}
+
+	client, err := NewClient("", "", "localhost", "8080", httpClient)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -70,15 +112,37 @@ func TestNewClient(t *testing.T) {
 	if client.username != "" || client.password != "" {
 		t.Errorf("Expected empty username and password")
 	}
+}
 
-	// Test with authentication using mock client
-	client, err = newMockClient(endpointResponses)
+func TestNewClientWithAuth(t *testing.T) {
+	// Mock a successful response for the AuthLogin call
+	endpointResponses := map[string]mockResponse{
+		"/api/v2/auth/login": {statusCode: http.StatusOK, responseBody: "Ok."},
+	}
+	expectedRequests := []expectedRequest{{method: "POST", url: "/api/v2/auth/login"}}
+
+	mockTransport := &mockRoundTripper{
+		endpointResponses: endpointResponses,
+		expectedRequests:  expectedRequests,
+		requestIndex:      0,
+	}
+
+	httpClient := &http.Client{
+		Transport: mockTransport,
+	}
+
+	client, err := NewClient("testuser", "testpass", "localhost", "8080", httpClient)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
 	if client.username != "testuser" || client.password != "testpass" {
 		t.Errorf("Username or password not set correctly")
+	}
+
+	// Check the request made
+	if mockTransport.requestIndex != len(mockTransport.expectedRequests) {
+		t.Errorf("Not all expected requests were made")
 	}
 }
 
@@ -87,8 +151,22 @@ func TestAuthLogin(t *testing.T) {
 	endpointResponses := map[string]mockResponse{
 		"/api/v2/auth/login": {statusCode: http.StatusOK, responseBody: "Ok."},
 	}
+	expectedRequests := []expectedRequest{
+		{method: "POST", url: "/api/v2/auth/login"},
+		{method: "POST", url: "/api/v2/auth/login"},
+	}
 
-	client, err := newMockClient(endpointResponses)
+	mockTransport := &mockRoundTripper{
+		endpointResponses: endpointResponses,
+		expectedRequests:  expectedRequests,
+		requestIndex:      0,
+	}
+
+	httpClient := &http.Client{
+		Transport: mockTransport,
+	}
+
+	client, err := NewClient("testuser", "testpass", "localhost", "8080", httpClient)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -97,6 +175,11 @@ func TestAuthLogin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
+
+	// Check the request made
+	if mockTransport.requestIndex != len(mockTransport.expectedRequests) {
+		t.Errorf("Not all expected requests were made")
+	}
 }
 
 func TestAuthLogin_Failure(t *testing.T) {
@@ -104,10 +187,26 @@ func TestAuthLogin_Failure(t *testing.T) {
 	endpointResponses := map[string]mockResponse{
 		"/api/v2/auth/login": {statusCode: http.StatusUnauthorized, responseBody: "Unauthorized"},
 	}
+	expectedRequests := []expectedRequest{{method: "POST", url: "/api/v2/auth/login"}}
 
-	client, err := newMockClient(endpointResponses)
+	mockTransport := &mockRoundTripper{
+		endpointResponses: endpointResponses,
+		expectedRequests:  expectedRequests,
+		requestIndex:      0,
+	}
+
+	httpClient := &http.Client{
+		Transport: mockTransport,
+	}
+
+	client, err := NewClient("testuser", "testpass", "localhost", "8080", httpClient)
 	if err == nil || client != nil {
 		t.Fatalf("Expected error during NewClient creation, got client: %v, error: %v", client, err)
+	}
+
+	// Check the request made
+	if mockTransport.requestIndex != len(mockTransport.expectedRequests) {
+		t.Errorf("Not all expected requests were made")
 	}
 }
 
@@ -118,8 +217,12 @@ func TestTorrentsExport(t *testing.T) {
 		"/api/v2/auth/login":      {statusCode: http.StatusOK, responseBody: "Ok."},
 		"/api/v2/torrents/export": {statusCode: http.StatusOK, responseBody: expectedData},
 	}
+	expectedRequests := []expectedRequest{
+		{method: "POST", url: "/api/v2/auth/login"},
+		{method: "POST", url: "/api/v2/torrents/export"},
+	}
 
-	client, err := newMockClient(endpointResponses)
+	client, mockTransport, err := newMockClient(endpointResponses, expectedRequests)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -132,6 +235,11 @@ func TestTorrentsExport(t *testing.T) {
 	if string(data) != expectedData {
 		t.Errorf("Expected %s, got %s", expectedData, string(data))
 	}
+
+	// Check the request made
+	if mockTransport.requestIndex != len(mockTransport.expectedRequests) {
+		t.Errorf("Not all expected requests were made")
+	}
 }
 
 func TestTorrentsAdd(t *testing.T) {
@@ -140,8 +248,12 @@ func TestTorrentsAdd(t *testing.T) {
 		"/api/v2/auth/login":   {statusCode: http.StatusOK, responseBody: "Ok."},
 		"/api/v2/torrents/add": {statusCode: http.StatusOK, responseBody: "Ok."},
 	}
+	expectedRequests := []expectedRequest{
+		{method: "POST", url: "/api/v2/auth/login"},
+		{method: "POST", url: "/api/v2/torrents/add"},
+	}
 
-	client, err := newMockClient(endpointResponses)
+	client, mockTransport, err := newMockClient(endpointResponses, expectedRequests)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -149,6 +261,11 @@ func TestTorrentsAdd(t *testing.T) {
 	err = client.TorrentsAdd("test.torrent", []byte("torrent data"))
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Check the request made
+	if mockTransport.requestIndex != len(mockTransport.expectedRequests) {
+		t.Errorf("Not all expected requests were made")
 	}
 }
 
@@ -158,8 +275,12 @@ func TestTorrentsDelete(t *testing.T) {
 		"/api/v2/auth/login":      {statusCode: http.StatusOK, responseBody: "Ok."},
 		"/api/v2/torrents/delete": {statusCode: http.StatusOK, responseBody: "Ok."},
 	}
+	expectedRequests := []expectedRequest{
+		{method: "POST", url: "/api/v2/auth/login"},
+		{method: "POST", url: "/api/v2/torrents/delete"},
+	}
 
-	client, err := newMockClient(endpointResponses)
+	client, mockTransport, err := newMockClient(endpointResponses, expectedRequests)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -167,6 +288,11 @@ func TestTorrentsDelete(t *testing.T) {
 	err = client.TorrentsDelete("testhash")
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Check the request made
+	if mockTransport.requestIndex != len(mockTransport.expectedRequests) {
+		t.Errorf("Not all expected requests were made")
 	}
 }
 
@@ -176,8 +302,12 @@ func TestSetForceStart(t *testing.T) {
 		"/api/v2/auth/login":             {statusCode: http.StatusOK, responseBody: "Ok."},
 		"/api/v2/torrents/setForceStart": {statusCode: http.StatusOK, responseBody: "Ok."},
 	}
+	expectedRequests := []expectedRequest{
+		{method: "POST", url: "/api/v2/auth/login"},
+		{method: "POST", url: "/api/v2/torrents/setForceStart"},
+	}
 
-	client, err := newMockClient(endpointResponses)
+	client, mockTransport, err := newMockClient(endpointResponses, expectedRequests)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -185,6 +315,11 @@ func TestSetForceStart(t *testing.T) {
 	err = client.SetForceStart("testhash", true)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Check the request made
+	if mockTransport.requestIndex != len(mockTransport.expectedRequests) {
+		t.Errorf("Not all expected requests were made")
 	}
 }
 
@@ -197,7 +332,12 @@ func TestTorrentsInfo(t *testing.T) {
 			responseBody: `[{"name": "torrent1"}, {"name": "torrent2"}]`,
 		},
 	}
-	client, err := newMockClient(endpointResponses)
+	expectedRequests := []expectedRequest{
+		{method: "POST", url: "/api/v2/auth/login"},
+		{method: "GET", url: "/api/v2/torrents/info"},
+	}
+
+	client, mockTransport, err := newMockClient(endpointResponses, expectedRequests)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -211,11 +351,24 @@ func TestTorrentsInfo(t *testing.T) {
 		t.Errorf("Expected 2 torrents, got %d", len(torrents))
 	}
 
+	// Check the request made
+	if mockTransport.requestIndex != len(mockTransport.expectedRequests) {
+		t.Errorf("Not all expected requests were made")
+	}
+
 	// Test with parameters
 	params := &TorrentsInfoParams{
 		Filter:   "downloading",
 		Category: "sample category",
 		Sort:     "ratio",
+	}
+	expectedRequests = []expectedRequest{
+		{method: "POST", url: "/api/v2/auth/login"},
+		{method: "GET", url: "/api/v2/torrents/info"},
+	}
+	client, mockTransport, err = newMockClient(endpointResponses, expectedRequests)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
 	}
 	torrents, err = client.TorrentsInfo(params)
 	if err != nil {
@@ -223,6 +376,11 @@ func TestTorrentsInfo(t *testing.T) {
 	}
 	if len(torrents) != 2 {
 		t.Errorf("Expected 2 torrents, got %d", len(torrents))
+	}
+
+	// Check the request made
+	if mockTransport.requestIndex != len(mockTransport.expectedRequests) {
+		t.Errorf("Not all expected requests were made")
 	}
 }
 
@@ -233,8 +391,12 @@ func TestTorrentsTrackers(t *testing.T) {
 		"/api/v2/auth/login":        {statusCode: http.StatusOK, responseBody: "Ok."},
 		"/api/v2/torrents/trackers": {statusCode: http.StatusOK, responseBody: responseBody},
 	}
+	expectedRequests := []expectedRequest{
+		{method: "POST", url: "/api/v2/auth/login"},
+		{method: "GET", url: "/api/v2/torrents/trackers"},
+	}
 
-	client, err := newMockClient(endpointResponses)
+	client, mockTransport, err := newMockClient(endpointResponses, expectedRequests)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -251,6 +413,11 @@ func TestTorrentsTrackers(t *testing.T) {
 	if trackers[0].URL != "tracker1" {
 		t.Errorf("Expected tracker URL 'tracker1', got '%s'", trackers[0].URL)
 	}
+
+	// Check the request made
+	if mockTransport.requestIndex != len(mockTransport.expectedRequests) {
+		t.Errorf("Not all expected requests were made")
+	}
 }
 
 func TestDoPostValues(t *testing.T) {
@@ -259,8 +426,12 @@ func TestDoPostValues(t *testing.T) {
 		"/api/v2/auth/login": {statusCode: http.StatusOK, responseBody: "Ok."},
 		"/api/test":          {statusCode: http.StatusOK, responseBody: "Ok."},
 	}
+	expectedRequests := []expectedRequest{
+		{method: "POST", url: "/api/v2/auth/login"},
+		{method: "POST", url: "/api/test", params: url.Values{"key": []string{"value"}}},
+	}
 
-	client, err := newMockClient(endpointResponses)
+	client, mockTransport, err := newMockClient(endpointResponses, expectedRequests)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -276,6 +447,11 @@ func TestDoPostValues(t *testing.T) {
 	if string(resp) != "Ok." {
 		t.Errorf("Expected response 'Ok.', got '%s'", string(resp))
 	}
+
+	// Check the request made
+	if mockTransport.requestIndex != len(mockTransport.expectedRequests) {
+		t.Errorf("Not all expected requests were made")
+	}
 }
 
 func TestDoPost_Error(t *testing.T) {
@@ -284,8 +460,12 @@ func TestDoPost_Error(t *testing.T) {
 		"/api/v2/auth/login": {statusCode: http.StatusOK, responseBody: "Ok."},
 		"/api/test":          {statusCode: http.StatusInternalServerError, responseBody: "Internal Server Error"},
 	}
+	expectedRequests := []expectedRequest{
+		{method: "POST", url: "/api/v2/auth/login"},
+		{method: "POST", url: "/api/test"},
+	}
 
-	client, err := newMockClient(endpointResponses)
+	client, mockTransport, err := newMockClient(endpointResponses, expectedRequests)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -295,6 +475,11 @@ func TestDoPost_Error(t *testing.T) {
 	if err == nil {
 		t.Fatalf("Expected error, got none")
 	}
+
+	// Check the request made
+	if mockTransport.requestIndex != len(mockTransport.expectedRequests) {
+		t.Errorf("Not all expected requests were made")
+	}
 }
 
 func TestDoGet(t *testing.T) {
@@ -303,8 +488,12 @@ func TestDoGet(t *testing.T) {
 		"/api/v2/auth/login": {statusCode: http.StatusOK, responseBody: "Ok."},
 		"/api/test":          {statusCode: http.StatusOK, responseBody: "Response data"},
 	}
+	expectedRequests := []expectedRequest{
+		{method: "POST", url: "/api/v2/auth/login"},
+		{method: "GET", url: "/api/test"},
+	}
 
-	client, err := newMockClient(endpointResponses)
+	client, mockTransport, err := newMockClient(endpointResponses, expectedRequests)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -317,6 +506,11 @@ func TestDoGet(t *testing.T) {
 	if string(resp) != "Response data" {
 		t.Errorf("Expected 'Response data', got '%s'", string(resp))
 	}
+
+	// Check the request made
+	if mockTransport.requestIndex != len(mockTransport.expectedRequests) {
+		t.Errorf("Not all expected requests were made")
+	}
 }
 
 func TestDoGet_Error(t *testing.T) {
@@ -325,8 +519,12 @@ func TestDoGet_Error(t *testing.T) {
 		"/api/v2/auth/login": {statusCode: http.StatusOK, responseBody: "Ok."},
 		"/api/test":          {statusCode: http.StatusNotFound, responseBody: "Not Found"},
 	}
+	expectedRequests := []expectedRequest{
+		{method: "POST", url: "/api/v2/auth/login"},
+		{method: "GET", url: "/api/test"},
+	}
 
-	client, err := newMockClient(endpointResponses)
+	client, mockTransport, err := newMockClient(endpointResponses, expectedRequests)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -334,6 +532,11 @@ func TestDoGet_Error(t *testing.T) {
 	_, err = client.doGet("/api/test", nil)
 	if err == nil {
 		t.Fatalf("Expected error, got none")
+	}
+
+	// Check the request made
+	if mockTransport.requestIndex != len(mockTransport.expectedRequests) {
+		t.Errorf("Not all expected requests were made")
 	}
 }
 
@@ -367,6 +570,7 @@ func TestIntegration_TorrentsInfo(t *testing.T) {
 		t.Errorf("Expected torrent name 'test torrent', got '%s'", torrents[0].Name)
 	}
 }
+
 func TestTorrentsInfo_HashesNil(t *testing.T) {
 	// Mock a successful response for the TorrentsInfo call
 	endpointResponses := map[string]mockResponse{
@@ -376,7 +580,12 @@ func TestTorrentsInfo_HashesNil(t *testing.T) {
 			responseBody: `[{"name": "torrent1"}, {"name": "torrent2"}]`,
 		},
 	}
-	client, err := newMockClient(endpointResponses)
+	expectedRequests := []expectedRequest{
+		{method: "POST", url: "/api/v2/auth/login"},
+		{method: "GET", url: "/api/v2/torrents/info"},
+	}
+
+	client, mockTransport, err := newMockClient(endpointResponses, expectedRequests)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -392,6 +601,11 @@ func TestTorrentsInfo_HashesNil(t *testing.T) {
 	if len(torrents) != 2 {
 		t.Errorf("Expected 2 torrents, got %d", len(torrents))
 	}
+
+	// Check the request made
+	if mockTransport.requestIndex != len(mockTransport.expectedRequests) {
+		t.Errorf("Not all expected requests were made")
+	}
 }
 
 func TestTorrentsInfo_HashesEmpty(t *testing.T) {
@@ -403,7 +617,12 @@ func TestTorrentsInfo_HashesEmpty(t *testing.T) {
 			responseBody: `[{"name": "torrent1"}, {"name": "torrent2"}]`,
 		},
 	}
-	client, err := newMockClient(endpointResponses)
+	expectedRequests := []expectedRequest{
+		{method: "POST", url: "/api/v2/auth/login"},
+		{method: "GET", url: "/api/v2/torrents/info"},
+	}
+
+	client, mockTransport, err := newMockClient(endpointResponses, expectedRequests)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -419,6 +638,11 @@ func TestTorrentsInfo_HashesEmpty(t *testing.T) {
 	if len(torrents) != 2 {
 		t.Errorf("Expected 2 torrents, got %d", len(torrents))
 	}
+
+	// Check the request made
+	if mockTransport.requestIndex != len(mockTransport.expectedRequests) {
+		t.Errorf("Not all expected requests were made")
+	}
 }
 
 func TestTorrentsInfo_HashesSingle(t *testing.T) {
@@ -430,7 +654,12 @@ func TestTorrentsInfo_HashesSingle(t *testing.T) {
 			responseBody: `[{"name": "torrent1"}]`,
 		},
 	}
-	client, err := newMockClient(endpointResponses)
+	expectedRequests := []expectedRequest{
+		{method: "POST", url: "/api/v2/auth/login"},
+		{method: "GET", url: "/api/v2/torrents/info", params: url.Values{"hashes": []string{"hash1"}}},
+	}
+
+	client, mockTransport, err := newMockClient(endpointResponses, expectedRequests)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -449,6 +678,11 @@ func TestTorrentsInfo_HashesSingle(t *testing.T) {
 	if torrents[0].Name != "torrent1" {
 		t.Errorf("Expected torrent name 'torrent1', got '%s'", torrents[0].Name)
 	}
+
+	// Check the request made
+	if mockTransport.requestIndex != len(mockTransport.expectedRequests) {
+		t.Errorf("Not all expected requests were made")
+	}
 }
 
 func TestTorrentsInfo_HashesMultiple(t *testing.T) {
@@ -460,14 +694,19 @@ func TestTorrentsInfo_HashesMultiple(t *testing.T) {
 			responseBody: `[{"name": "torrent1"}, {"name": "torrent2"}]`,
 		},
 	}
-	client, err := newMockClient(endpointResponses)
+	expectedRequests := []expectedRequest{
+		{method: "POST", url: "/api/v2/auth/login"},
+		{method: "GET", url: "/api/v2/torrents/info", params: url.Values{"hashes": []string{"hash1|hash2"}}},
+	}
+
+	client, mockTransport, err := newMockClient(endpointResponses, expectedRequests)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
 	// Test with multiple hashes
 	params := &TorrentsInfoParams{
-		Hashes: []string{"hash1", "hash2"},
+		Hashes: []string{"hash1|hash2"},
 	}
 	torrents, err := client.TorrentsInfo(params)
 	if err != nil {
@@ -481,5 +720,10 @@ func TestTorrentsInfo_HashesMultiple(t *testing.T) {
 	}
 	if torrents[1].Name != "torrent2" {
 		t.Errorf("Expected torrent name 'torrent2', got '%s'", torrents[1].Name)
+	}
+
+	// Check the request made
+	if mockTransport.requestIndex != len(mockTransport.expectedRequests) {
+		t.Errorf("Not all expected requests were made")
 	}
 }

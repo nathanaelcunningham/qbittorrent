@@ -272,6 +272,71 @@ func (c *Client) TorrentsTrackers(hash string) ([]TrackerInfo, error) {
 	return trackers, nil
 }
 
+// TorrentsAddTags adds tags to the specified torrents
+func (c *Client) TorrentsAddTags(hashes, tags string) error {
+	data := url.Values{}
+	data.Set("hashes", hashes)
+	data.Set("tags", tags)
+
+	_, err := c.doPostValues("/api/v2/torrents/addTags", data)
+	if err != nil {
+		return fmt.Errorf("AddTags error: %v", err)
+	}
+	return nil
+}
+
+// TorrentsRemoveTags removes tags from the specified torrents
+func (c *Client) TorrentsRemoveTags(hashes, tags string) error {
+	data := url.Values{}
+	data.Set("hashes", hashes)
+	data.Set("tags", tags)
+
+	_, err := c.doPostValues("/api/v2/torrents/removeTags", data)
+	if err != nil {
+		return fmt.Errorf("RemoveTags error: %v", err)
+	}
+	return nil
+}
+
+// TorrentsGetAllTags retrieves all tags from qBittorrent
+func (c *Client) TorrentsGetAllTags() ([]string, error) {
+	respData, err := c.doGet("/api/v2/torrents/tags", nil)
+	if err != nil {
+		return nil, fmt.Errorf("GetAllTags error: %v", err)
+	}
+
+	var tags []string
+	if err := json.Unmarshal(respData, &tags); err != nil {
+		return nil, fmt.Errorf("failed to decode tags response: %v", err)
+	}
+
+	return tags, nil
+}
+
+// TorrentsCreateTags creates new tags in qBittorrent
+func (c *Client) TorrentsCreateTags(tags string) error {
+	data := url.Values{}
+	data.Set("tags", tags)
+
+	_, err := c.doPostValues("/api/v2/torrents/createTags", data)
+	if err != nil {
+		return fmt.Errorf("CreateTags error: %v", err)
+	}
+	return nil
+}
+
+// TorrentsDeleteTags deletes tags from qBittorrent
+func (c *Client) TorrentsDeleteTags(tags string) error {
+	data := url.Values{}
+	data.Set("tags", tags)
+
+	_, err := c.doPostValues("/api/v2/torrents/deleteTags", data)
+	if err != nil {
+		return fmt.Errorf("DeleteTags error: %v", err)
+	}
+	return nil
+}
+
 // doPostResponse POSTs to qBittorrent and returns the HTTP response
 func (c *Client) doPostResponse(endpoint string, body io.Reader, contentType string) (*http.Response, error) {
 	req, err := http.NewRequest("POST", c.baseURL+endpoint, body)
