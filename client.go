@@ -23,52 +23,72 @@ type Client struct {
 
 // TorrentInfo represents the structured information of a torrent from the qBittorrent API
 type TorrentInfo struct {
-	AddedOn            int64   `json:"added_on"`
-	Name               string  `json:"name"`
-	State              string  `json:"state"`
-	Hash               string  `json:"hash"`
-	LastActivity       int64   `json:"last_activity"`
-	Progress           float64 `json:"progress"`
-	Downloaded         int64   `json:"downloaded"`
-	Uploaded           int64   `json:"uploaded"`
-	Size               int64   `json:"size"`
-	Category           string  `json:"category"`
-	SavePath           string  `json:"save_path"`
-	CompletionOn       int64   `json:"completion_on"`
-	DLSpeed            int64   `json:"dlspeed"`
-	UpSpeed            int64   `json:"upspeed"`
-	AmountLeft         int64   `json:"amount_left"`
-	AutoTMM            bool    `json:"auto_tmm"`
-	Availability       float64 `json:"availability"`
-	Completed          int64   `json:"completed"`
-	ContentPath        string  `json:"content_path"`
-	DLLimit            int64   `json:"dl_limit"`
-	DownloadedSession  int64   `json:"downloaded_session"`
-	ETA                int64   `json:"eta"`
-	FirstLastPiecePrio bool    `json:"f_l_piece_prio"`
-	ForceStart         bool    `json:"force_start"`
-	IsPrivate          bool    `json:"isPrivate"`
-	MagnetURI          string  `json:"magnet_uri"`
-	MaxRatio           float64 `json:"max_ratio"`
-	MaxSeedingTime     int64   `json:"max_seeding_time"`
-	NumComplete        int64   `json:"num_complete"`
-	NumIncomplete      int64   `json:"num_incomplete"`
-	NumLeechs          int64   `json:"num_leechs"`
-	NumSeeds           int64   `json:"num_seeds"`
-	Priority           int64   `json:"priority"`
-	Ratio              float64 `json:"ratio"`
-	RatioLimit         float64 `json:"ratio_limit"`
-	SeedingTime        int64   `json:"seeding_time"`
-	SeedingTimeLimit   int64   `json:"seeding_time_limit"`
-	SeenComplete       int64   `json:"seen_complete"`
-	SequentialDownload bool    `json:"seq_dl"`
-	SuperSeeding       bool    `json:"super_seeding"`
-	Tags               string  `json:"tags"`
-	TimeActive         int64   `json:"time_active"`
-	TotalSize          int64   `json:"total_size"`
-	Tracker            string  `json:"tracker"`
-	UpLimit            int64   `json:"up_limit"`
-	UploadedSession    int64   `json:"uploaded_session"`
+	AddedOn            int64    `json:"added_on"`
+	Name               string   `json:"name"`
+	State              string   `json:"state"`
+	Hash               string   `json:"hash"`
+	LastActivity       int64    `json:"last_activity"`
+	Progress           float64  `json:"progress"`
+	Downloaded         int64    `json:"downloaded"`
+	Uploaded           int64    `json:"uploaded"`
+	Size               int64    `json:"size"`
+	Category           string   `json:"category"`
+	SavePath           string   `json:"save_path"`
+	CompletionOn       int64    `json:"completion_on"`
+	DLSpeed            int64    `json:"dlspeed"`
+	UpSpeed            int64    `json:"upspeed"`
+	AmountLeft         int64    `json:"amount_left"`
+	AutoTMM            bool     `json:"auto_tmm"`
+	Availability       float64  `json:"availability"`
+	Completed          int64    `json:"completed"`
+	ContentPath        string   `json:"content_path"`
+	DLLimit            int64    `json:"dl_limit"`
+	DownloadedSession  int64    `json:"downloaded_session"`
+	ETA                int64    `json:"eta"`
+	FirstLastPiecePrio bool     `json:"f_l_piece_prio"`
+	ForceStart         bool     `json:"force_start"`
+	IsPrivate          bool     `json:"isPrivate"`
+	MagnetURI          string   `json:"magnet_uri"`
+	MaxRatio           float64  `json:"max_ratio"`
+	MaxSeedingTime     int64    `json:"max_seeding_time"`
+	NumComplete        int64    `json:"num_complete"`
+	NumIncomplete      int64    `json:"num_incomplete"`
+	NumLeechs          int64    `json:"num_leechs"`
+	NumSeeds           int64    `json:"num_seeds"`
+	Priority           int64    `json:"priority"`
+	Ratio              float64  `json:"ratio"`
+	RatioLimit         float64  `json:"ratio_limit"`
+	SeedingTime        int64    `json:"seeding_time"`
+	SeedingTimeLimit   int64    `json:"seeding_time_limit"`
+	SeenComplete       int64    `json:"seen_complete"`
+	SequentialDownload bool     `json:"seq_dl"`
+	SuperSeeding       bool     `json:"super_seeding"`
+	Tags               []string `json:"-"`
+	TimeActive         int64    `json:"time_active"`
+	TotalSize          int64    `json:"total_size"`
+	Tracker            string   `json:"tracker"`
+	UpLimit            int64    `json:"up_limit"`
+	UploadedSession    int64    `json:"uploaded_session"`
+}
+
+// UnmarshalJSON custom unmarshaller for TorrentInfo to handle Tags
+func (t *TorrentInfo) UnmarshalJSON(data []byte) error {
+	type Alias TorrentInfo
+	aux := &struct {
+		RawTags string `json:"tags"`
+		*Alias
+	}{
+		Alias: (*Alias)(t),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if aux.RawTags == "" {
+		t.Tags = []string{}
+	} else {
+		t.Tags = strings.Split(aux.RawTags, ",")
+	}
+	return nil
 }
 
 // TrackerInfo represents a tracker info for a torrent
@@ -296,6 +316,32 @@ func (c *Client) TorrentsRemoveTags(hashes, tags string) error {
 		return fmt.Errorf("RemoveTags error: %v", err)
 	}
 	return nil
+}
+
+// TorrentsGetTags retrieves the tags for the given torrent hashes
+func (c *Client) TorrentsGetTags(hashes string) ([]string, error) {
+	params := &TorrentsInfoParams{
+		Hashes: []string{hashes},
+	}
+
+	torrents, err := c.TorrentsInfo(params)
+	if err != nil {
+		return nil, fmt.Errorf("TorrentsGetTags error: %v", err)
+	}
+
+	tagSet := make(map[string]struct{})
+	for _, torrent := range torrents {
+		for _, tag := range torrent.Tags {
+			tagSet[tag] = struct{}{}
+		}
+	}
+
+	var tags []string
+	for tag := range tagSet {
+		tags = append(tags, tag)
+	}
+
+	return tags, nil
 }
 
 // TorrentsGetAllTags retrieves all tags from qBittorrent
