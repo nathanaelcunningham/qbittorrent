@@ -12,6 +12,8 @@ import (
 	"strings"
 )
 
+type InfoHash string
+
 // Client is used to interact with the qBittorrent API
 type Client struct {
 	username string
@@ -24,51 +26,51 @@ type Client struct {
 // TorrentInfo represents the structured information of a torrent from the qBittorrent API
 type TorrentInfo struct {
 	AddedOn            int64    `json:"added_on"`
-	Name               string   `json:"name"`
-	State              string   `json:"state"`
-	Hash               string   `json:"hash"`
-	LastActivity       int64    `json:"last_activity"`
-	Progress           float64  `json:"progress"`
-	Downloaded         int64    `json:"downloaded"`
-	Uploaded           int64    `json:"uploaded"`
-	Size               int64    `json:"size"`
-	Category           string   `json:"category"`
-	SavePath           string   `json:"save_path"`
-	CompletionOn       int64    `json:"completion_on"`
-	DLSpeed            int64    `json:"dlspeed"`
-	UpSpeed            int64    `json:"upspeed"`
 	AmountLeft         int64    `json:"amount_left"`
 	AutoTMM            bool     `json:"auto_tmm"`
 	Availability       float64  `json:"availability"`
+	Category           string   `json:"category"`
 	Completed          int64    `json:"completed"`
+	CompletionOn       int64    `json:"completion_on"`
 	ContentPath        string   `json:"content_path"`
 	DLLimit            int64    `json:"dl_limit"`
+	DLSpeed            int64    `json:"dlspeed"`
+	Downloaded         int64    `json:"downloaded"`
 	DownloadedSession  int64    `json:"downloaded_session"`
 	ETA                int64    `json:"eta"`
 	FirstLastPiecePrio bool     `json:"f_l_piece_prio"`
 	ForceStart         bool     `json:"force_start"`
+	Hash               InfoHash `json:"hash"`
 	IsPrivate          bool     `json:"isPrivate"`
+	LastActivity       int64    `json:"last_activity"`
 	MagnetURI          string   `json:"magnet_uri"`
 	MaxRatio           float64  `json:"max_ratio"`
 	MaxSeedingTime     int64    `json:"max_seeding_time"`
+	Name               string   `json:"name"`
 	NumComplete        int64    `json:"num_complete"`
 	NumIncomplete      int64    `json:"num_incomplete"`
 	NumLeechs          int64    `json:"num_leechs"`
 	NumSeeds           int64    `json:"num_seeds"`
 	Priority           int64    `json:"priority"`
+	Progress           float64  `json:"progress"`
 	Ratio              float64  `json:"ratio"`
 	RatioLimit         float64  `json:"ratio_limit"`
+	SavePath           string   `json:"save_path"`
 	SeedingTime        int64    `json:"seeding_time"`
 	SeedingTimeLimit   int64    `json:"seeding_time_limit"`
 	SeenComplete       int64    `json:"seen_complete"`
 	SequentialDownload bool     `json:"seq_dl"`
+	Size               int64    `json:"size"`
+	State              string   `json:"state"`
 	SuperSeeding       bool     `json:"super_seeding"`
 	Tags               []string `json:"-"`
 	TimeActive         int64    `json:"time_active"`
 	TotalSize          int64    `json:"total_size"`
 	Tracker            string   `json:"tracker"`
 	UpLimit            int64    `json:"up_limit"`
+	Uploaded           int64    `json:"uploaded"`
 	UploadedSession    int64    `json:"uploaded_session"`
+	UpSpeed            int64    `json:"upspeed"`
 }
 
 // UnmarshalJSON custom unmarshaller for TorrentInfo to handle Tags
@@ -98,6 +100,74 @@ type TrackerInfo struct {
 	Tier     int    `json:"tier"`
 	NumPeers int    `json:"num_peers"`
 	Msg      string `json:"msg"`
+}
+
+type Category map[string]interface{} // no idea what this should be, category=CategoryName&savePath=/path/to/dir
+
+type MainData struct {
+	Categories  map[string]Category    `json:"categories"`
+	FullUpdate  bool                   `json:"full_update"`
+	Rid         int                    `json:"rid"`
+	ServerState ServerState            `json:"server_state"`
+	Tags        []string               `json:"tags"`
+	Torrents    map[string]TorrentInfo `json:"torrents"` // fields might be missing, in which case we need to switch to pointers and allow "omitempty"
+	// TorrentsRemoved []string           `json:"torrents_removed"`
+	Trackers map[string][]InfoHash `json:"trackers"` // maps trackers to infohashes
+}
+
+type ServerState struct {
+	AllTimeDL            int64  `json:"alltime_dl"`
+	AllTimeUL            int64  `json:"alltime_ul"`
+	AverageTimeQueue     int    `json:"average_time_queue"`
+	ConnectionStatus     string `json:"connection_status"`
+	DHTNodes             int    `json:"dht_nodes"`
+	DLInfoData           int64  `json:"dl_info_data"`
+	DLInfoSpeed          int    `json:"dl_info_speed"`
+	DLRateLimit          int    `json:"dl_rate_limit"`
+	FreeSpaceOnDisk      int64  `json:"free_space_on_disk"`
+	GlobalRatio          string `json:"global_ratio"`
+	QueuedIOJobs         int    `json:"queued_io_jobs"`
+	Queueing             bool   `json:"queueing"`
+	ReadCacheHits        string `json:"read_cache_hits"`
+	ReadCacheOverload    string `json:"read_cache_overload"`
+	RefreshInterval      int    `json:"refresh_interval"`
+	TotalBuffersSize     int64  `json:"total_buffers_size"`
+	TotalPeerConnections int    `json:"total_peer_connections"`
+	TotalQueuedSize      int64  `json:"total_queued_size"`
+	TotalWastedSession   int64  `json:"total_wasted_session"`
+	UpInfoData           int64  `json:"up_info_data"`
+	UpInfoSpeed          int    `json:"up_info_speed"`
+	UpRateLimit          int    `json:"up_rate_limit"`
+	UseAltSpeedLimits    bool   `json:"use_alt_speed_limits"`
+	UseSubcategories     bool   `json:"use_subcategories"`
+	WriteCacheOverload   string `json:"write_cache_overload"`
+}
+
+type TorrentPeer struct {
+	Client       string  `json:"client"`
+	Connection   string  `json:"connection"`
+	Country      string  `json:"country"`
+	CountryCode  string  `json:"country_code"`
+	DLSpeed      int64   `json:"dl_speed"`
+	Downloaded   int64   `json:"downloaded"`
+	Files        string  `json:"files"`
+	Flags        string  `json:"flags"`
+	FlagsDesc    string  `json:"flags_desc"`
+	IP           string  `json:"ip"`
+	PeerIDClient string  `json:"peer_id_client"`
+	Port         int     `json:"port"`
+	Progress     float64 `json:"progress"`
+	Relevance    float64 `json:"relevance"`
+	Uploaded     int64   `json:"uploaded"`
+	UPSpeed      int64   `json:"up_speed"`
+}
+
+type TorrentPeers struct {
+	FullUpdate bool                   `json:"full_update"`
+	Peers      map[string]TorrentPeer `json:"peers"`
+	// PeersRemoved map[string][]string    `json:"peers_removed"`
+	Rid       int  `json:"rid"`
+	ShowFlags bool `json:"show_flags"`
 }
 
 // NewClient initializes a new qBittorrent client.
@@ -456,4 +526,41 @@ func (c *Client) doGet(endpoint string, query url.Values) ([]byte, error) {
 		return nil, fmt.Errorf("ReadAll error: %v", err)
 	}
 	return responseData, nil
+}
+
+func (c *Client) SyncMainData(rid int) (*MainData, error) {
+	params := url.Values{}
+	params.Set("rid", strconv.Itoa(rid))
+
+	resp, err := c.doGet("/api/v2/sync/maindata", params)
+	if err != nil {
+		return nil, err
+	}
+
+	var result MainData
+	err = json.Unmarshal(resp, &result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+func (c *Client) SyncTorrentPeers(hash string, rid int) (*TorrentPeers, error) {
+	params := url.Values{}
+	params.Set("rid", strconv.Itoa(rid))
+	params.Set("hash", hash)
+
+	resp, err := c.doGet("/api/v2/sync/torrentPeers", params)
+	if err != nil {
+		return nil, err
+	}
+
+	var result TorrentPeers
+	err = json.Unmarshal(resp, &result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
 }
