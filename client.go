@@ -106,15 +106,20 @@ type TrackerInfo struct {
 
 type Category map[string]interface{} // no idea what this should be, category=CategoryName&savePath=/path/to/dir
 
+// fields might be missing, in which case we need to switch to pointers and allow "omitempty"
+// https://github.com/qbittorrent/qBittorrent/blob/master/src/base/json_api.cpp#L101
+// MainData is the data returned by the /api/v2/sync/maindata endpoint
 type MainData struct {
-	Categories  map[string]Category    `json:"categories"`
-	FullUpdate  bool                   `json:"full_update"`
-	Rid         int                    `json:"rid"`
-	ServerState ServerState            `json:"server_state"`
-	Tags        []string               `json:"tags"`
-	Torrents    map[string]TorrentInfo `json:"torrents"` // fields might be missing, in which case we need to switch to pointers and allow "omitempty"
-	// TorrentsRemoved []string           `json:"torrents_removed"`
-	Trackers map[string][]InfoHash `json:"trackers"` // maps trackers to infohashes
+	Categories        map[string]Category    `json:"categories"`
+	CategoriesRemoved []Category             `json:"categories_removed"`
+	FullUpdate        bool                   `json:"full_update"`
+	Rid               int                    `json:"rid"`
+	ServerState       ServerState            `json:"server_state"`
+	Tags              []string               `json:"tags"`
+	TagsRemoved       []string               `json:"tags_removed"`
+	Torrents          map[string]TorrentInfo `json:"torrents"`
+	TorrentsRemoved   []string               `json:"torrents_removed"`
+	Trackers          map[string][]InfoHash  `json:"trackers"` // maps trackers to infohashes
 }
 
 type ServerState struct {
