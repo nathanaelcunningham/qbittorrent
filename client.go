@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 type InfoHash string
@@ -21,6 +22,7 @@ type Client struct {
 	client   *http.Client
 	baseURL  string
 	sid      string // store the SID cookie
+	mu       sync.RWMutex
 }
 
 // TorrentInfo represents the structured information of a torrent from the qBittorrent API
@@ -215,7 +217,9 @@ func (c *Client) AuthLogin() error {
 	// Extract the SID cookie from the response
 	for _, cookie := range resp.Cookies() {
 		if cookie.Name == "SID" {
+			c.mu.Lock()
 			c.sid = cookie.Value
+			c.mu.Unlock()
 			break
 		}
 	}
@@ -460,9 +464,13 @@ func (c *Client) doPostResponse(endpoint string, body io.Reader, contentType str
 		return nil, err
 	}
 	req.Header.Set("Content-Type", contentType)
+
+	c.mu.RLock()
 	if c.sid != "" {
 		req.AddCookie(&http.Cookie{Name: "SID", Value: c.sid})
 	}
+	c.mu.RUnlock()
+
 	return c.client.Do(req)
 }
 
@@ -506,9 +514,11 @@ func (c *Client) doGet(endpoint string, query url.Values) ([]byte, error) {
 		req.URL.RawQuery = query.Encode()
 	}
 
+	c.mu.RLock()
 	if c.sid != "" {
 		req.AddCookie(&http.Cookie{Name: "SID", Value: c.sid})
 	}
+	c.mu.RUnlock()
 
 	resp, err := c.client.Do(req)
 	if err != nil {
