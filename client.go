@@ -464,19 +464,7 @@ func (c *Client) TorrentsDeleteTags(tags string) error {
 
 // doPostResponse POSTs to qBittorrent and returns the HTTP response
 func (c *Client) doPostResponse(endpoint string, body io.Reader, contentType string) (*http.Response, error) {
-	req, err := http.NewRequest("POST", c.baseURL+endpoint, body)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", contentType)
-
-	c.mu.RLock()
-	if c.sid != "" {
-		req.AddCookie(&http.Cookie{Name: "SID", Value: c.sid})
-	}
-	c.mu.RUnlock()
-
-	return c.client.Do(req)
+	return c.doRequest("POST", endpoint, body, contentType)
 }
 
 // doPost makes POSTs to qBittorrent and returns the response body
@@ -502,32 +490,9 @@ func (c *Client) doPostValues(endpoint string, data url.Values) ([]byte, error) 
 
 // doGet is a helper method for making GET requests to the qBittorrent API with query parameters
 func (c *Client) doGet(endpoint string, query url.Values) ([]byte, error) {
-	// Use net/url to construct the full URL
-	apiURL, err := url.Parse(c.baseURL)
+	resp, err := c.doRequest("GET", endpoint, nil, "", withQuery(query))
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse base URL: %v", err)
-	}
-
-	apiURL.Path = strings.TrimSuffix(apiURL.Path, "/") + endpoint
-
-	req, err := http.NewRequest("GET", apiURL.String(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("NewRequest error: %v", err)
-	}
-
-	if query != nil {
-		req.URL.RawQuery = query.Encode()
-	}
-
-	c.mu.RLock()
-	if c.sid != "" {
-		req.AddCookie(&http.Cookie{Name: "SID", Value: c.sid})
-	}
-	c.mu.RUnlock()
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("HTTP request error: %v", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
@@ -541,6 +506,92 @@ func (c *Client) doGet(endpoint string, query url.Values) ([]byte, error) {
 		return nil, fmt.Errorf("ReadAll error: %v", err)
 	}
 	return responseData, nil
+}
+
+// doRequest is a helper function to handle HTTP requests with optional query parameters
+func (c *Client) doRequest(method, endpoint string, body io.Reader, contentType string, opts ...func(*http.Request) error) (*http.Response, error) {
+	apiURL, err := url.Parse(c.baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse base URL: %v", err)
+	}
+
+	apiURL.Path = strings.TrimSuffix(apiURL.Path, "/") + endpoint
+
+	// Store body in buffer if it's not nil so we can retry the request
+	var bodyBuffer []byte
+	if body != nil {
+		bodyBuffer, err = io.ReadAll(body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read request body: %v", err)
+		}
+	}
+
+	makeRequest := func() (*http.Request, error) {
+		var bodyReader io.Reader
+		if bodyBuffer != nil {
+			bodyReader = bytes.NewReader(bodyBuffer)
+		}
+		req, err := http.NewRequest(method, apiURL.String(), bodyReader)
+		if err != nil {
+			return nil, fmt.Errorf("NewRequest error: %v", err)
+		}
+
+		if contentType != "" {
+			req.Header.Set("Content-Type", contentType)
+		}
+
+		c.mu.RLock()
+		if c.sid != "" {
+			req.AddCookie(&http.Cookie{Name: "SID", Value: c.sid})
+		}
+		c.mu.RUnlock()
+
+		// Apply any optional request modifiers
+		for _, opt := range opts {
+			if err := opt(req); err != nil {
+				return nil, err
+			}
+		}
+		return req, nil
+	}
+
+	// Make initial request
+	req, err := makeRequest()
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	// If we get a 403 Forbidden, try to re-authenticate once and retry the request
+	if resp.StatusCode == http.StatusForbidden {
+		resp.Body.Close() // Close the first response
+
+		if err := c.AuthLogin(); err != nil {
+			return nil, fmt.Errorf("re-authentication failed: %v", err)
+		}
+
+		// Retry the original request with the new SID
+		req, err := makeRequest()
+		if err != nil {
+			return nil, err
+		}
+
+		return c.client.Do(req)
+	}
+
+	return resp, nil
+}
+
+// withQuery returns a request modifier that adds query parameters
+func withQuery(query url.Values) func(*http.Request) error {
+	return func(req *http.Request) error {
+		req.URL.RawQuery = query.Encode()
+		return nil
+	}
 }
 
 func (c *Client) SyncMainData(rid int) (*MainData, error) {

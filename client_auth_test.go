@@ -11,9 +11,10 @@ func TestNewClientWithoutAuth(t *testing.T) {
 	expectedRequests := []expectedRequest{}
 
 	mockTransport := &mockRoundTripper{
-		endpointResponses: endpointResponses,
-		expectedRequests:  expectedRequests,
-		requestIndex:      0,
+		responses:        endpointResponses,
+		expectedRequests: expectedRequests,
+		requestIndex:     0,
+		t:                t,
 	}
 
 	httpClient := &http.Client{
@@ -38,9 +39,10 @@ func TestNewClientWithAuth(t *testing.T) {
 	expectedRequests := []expectedRequest{{method: "POST", url: "/api/v2/auth/login"}}
 
 	mockTransport := &mockRoundTripper{
-		endpointResponses: endpointResponses,
-		expectedRequests:  expectedRequests,
-		requestIndex:      0,
+		responses:        endpointResponses,
+		expectedRequests: expectedRequests,
+		requestIndex:     0,
+		t:                t,
 	}
 
 	httpClient := &http.Client{
@@ -73,9 +75,10 @@ func TestAuthLogin(t *testing.T) {
 	}
 
 	mockTransport := &mockRoundTripper{
-		endpointResponses: endpointResponses,
-		expectedRequests:  expectedRequests,
-		requestIndex:      0,
+		responses:        endpointResponses,
+		expectedRequests: expectedRequests,
+		requestIndex:     0,
+		t:                t,
 	}
 
 	httpClient := &http.Client{
@@ -106,9 +109,10 @@ func TestAuthLogin_Failure(t *testing.T) {
 	expectedRequests := []expectedRequest{{method: "POST", url: "/api/v2/auth/login"}}
 
 	mockTransport := &mockRoundTripper{
-		endpointResponses: endpointResponses,
-		expectedRequests:  expectedRequests,
-		requestIndex:      0,
+		responses:        endpointResponses,
+		expectedRequests: expectedRequests,
+		requestIndex:     0,
+		t:                t,
 	}
 
 	httpClient := &http.Client{

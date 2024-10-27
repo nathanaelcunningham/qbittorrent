@@ -1,88 +1,95 @@
 package qbittorrent
 
 import (
-	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"reflect"
+	"strings"
+	"testing"
 )
 
 // mockRoundTripper is used to mock http.Client responses and supports multiple endpoints
 type mockRoundTripper struct {
-	endpointResponses map[string]mockResponse
-	expectedRequests  []expectedRequest
-	requestIndex      int
+	responses        map[string]mockResponse
+	expectedRequests []expectedRequest
+	requestIndex     int
+	t                *testing.T
 }
 
 // mockResponse represents a mock HTTP response for a given endpoint
 type mockResponse struct {
 	statusCode   int
 	responseBody string
-	err          error
+	then         *mockResponse // Next response in sequence
 }
 
 // expectedRequest represents an expected HTTP request
 type expectedRequest struct {
 	method string
 	url    string
-	params url.Values
+	params url.Values // For POST form values
+	query  url.Values // For GET query parameters
 }
 
 // RoundTrip implements the RoundTripper interface
 func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	if m.requestIndex >= len(m.expectedRequests) {
-		return nil, http.ErrHandlerTimeout
+		m.t.Errorf("Unexpected request: %s %s", req.Method, req.URL.Path)
+		return nil, fmt.Errorf("unexpected request")
 	}
 
 	expected := m.expectedRequests[m.requestIndex]
-	if req.Method != expected.method || req.URL.Path != expected.url {
-		return nil, &url.Error{Op: "Get", URL: req.URL.String(), Err: http.ErrAbortHandler}
+	m.requestIndex++
+
+	// Check method and path
+	if req.Method != expected.method {
+		m.t.Errorf("Expected method %s, got %s", expected.method, req.Method)
+	}
+	if req.URL.Path != expected.url {
+		m.t.Errorf("Expected URL %s, got %s", expected.url, req.URL.Path)
 	}
 
+	// Check query parameters if specified
+	if expected.query != nil {
+		if !reflect.DeepEqual(req.URL.Query(), expected.query) {
+			m.t.Errorf("Expected query params %v, got %v", expected.query, req.URL.Query())
+		}
+	}
+
+	// Check POST form values if specified
 	if expected.params != nil {
-		err := req.ParseForm()
-		if err != nil {
+		if err := req.ParseForm(); err != nil {
 			return nil, err
 		}
-		for key, values := range expected.params {
-			if req.Form.Get(key) != values[0] {
-				return nil, &url.Error{Op: "Get", URL: req.URL.String(), Err: http.ErrAbortHandler}
-			}
+		if !reflect.DeepEqual(req.PostForm, expected.params) {
+			m.t.Errorf("Expected form values %v, got %v", expected.params, req.PostForm)
 		}
 	}
 
-	m.requestIndex++
-	response, ok := m.endpointResponses[req.URL.Path]
-	if !ok {
-		// Default to 404 Not Found if endpoint is not defined
-		response = mockResponse{
-			statusCode:   http.StatusNotFound,
-			responseBody: "Not Found",
-		}
+	resp := m.responses[req.URL.Path]
+	// If there's a sequential response, update it for next time
+	if resp.then != nil {
+		m.responses[req.URL.Path] = *resp.then
 	}
 
-	resp := &http.Response{
-		StatusCode: response.statusCode,
-		Body:       io.NopCloser(bytes.NewBufferString(response.responseBody)),
+	return &http.Response{
+		StatusCode: resp.statusCode,
+		Body:       io.NopCloser(strings.NewReader(resp.responseBody)),
 		Header:     make(http.Header),
-	}
-
-	return resp, response.err
+	}, nil
 }
 
 // helper function to create a mock client with predefined endpoint responses and expected requests
-func newMockClient(endpointResponses map[string]mockResponse, expectedRequests []expectedRequest) (*Client, *mockRoundTripper, error) {
-	mockTransport := &mockRoundTripper{
-		endpointResponses: endpointResponses,
-		expectedRequests:  expectedRequests,
-		requestIndex:      0,
+func newMockClient(responses map[string]mockResponse, expectedRequests []expectedRequest) (*Client, *mockRoundTripper, error) {
+	transport := &mockRoundTripper{
+		responses:        responses,
+		expectedRequests: expectedRequests,
+		t:                &testing.T{},
 	}
 
-	httpClient := &http.Client{
-		Transport: mockTransport,
-	}
-
-	// Directly return the client and error from NewClient
-	client, err := NewClient("testuser", "testpass", "localhost", "8080", httpClient)
-	return client, mockTransport, err
+	httpClient := &http.Client{Transport: transport}
+	client, err := NewClient("user", "pass", "localhost", "8080", httpClient)
+	return client, transport, err
 }
