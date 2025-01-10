@@ -266,6 +266,68 @@ func (c *Client) TorrentsAdd(torrentFile string, fileData []byte) error {
 	return nil
 }
 
+// These are not all the options, just the ones i need
+// documentation at: https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-4.1)#add-new-torrent
+type TorrentsAddOptions struct {
+	SavePath    *string
+	Category    *string
+	Tags        *[]string
+	StartPaused *bool
+	AutoTMM     *bool
+}
+
+type TorrentAddOption func(*TorrentsAddOptions)
+
+func (c *Client) TorrentsAddWithOptions(torrentFile string, fileData []byte, opts ...TorrentAddOption) error {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	// Default this to true
+	_ = writer.WriteField("skip_checking", "true") // Avoid recheck
+
+	part, err := writer.CreateFormFile("torrents", torrentFile)
+	if err != nil {
+		return fmt.Errorf("CreateFormFile error: %v", err)
+	}
+	if _, err := io.Copy(part, bytes.NewReader(fileData)); err != nil {
+		return fmt.Errorf("io.Copy error: %v", err)
+	}
+
+	options := &TorrentsAddOptions{}
+
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	if options.SavePath != nil {
+		_ = writer.WriteField("savepath", *options.SavePath)
+	}
+
+	if options.Category != nil {
+		_ = writer.WriteField("category", *options.Category)
+	}
+
+	if options.Tags != nil {
+		_ = writer.WriteField("tags", strings.Join(*options.Tags, ","))
+	}
+
+	if options.StartPaused != nil {
+		_ = writer.WriteField("paused", strconv.FormatBool(*options.StartPaused))
+	}
+
+	if options.AutoTMM != nil {
+		_ = writer.WriteField("autoTMM", strconv.FormatBool(*options.AutoTMM))
+	}
+
+	writer.Close()
+
+	_, err = c.doPost("/api/v2/torrents/add", &body, writer.FormDataContentType())
+	if err != nil {
+		return fmt.Errorf("TorrentsAdd error: %v", err)
+	}
+	return nil
+}
+
 // TorrentsDelete deletes a torrent from qBittorrent by its hash
 func (c *Client) TorrentsDelete(infohash string) error {
 	data := url.Values{}
