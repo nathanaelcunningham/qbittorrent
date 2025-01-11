@@ -278,6 +278,36 @@ type TorrentsAddOptions struct {
 
 type TorrentAddOption func(*TorrentsAddOptions)
 
+func WithSavePath(savePath string) TorrentAddOption {
+	return func(o *TorrentsAddOptions) {
+		o.SavePath = &savePath
+	}
+}
+
+func WithCategory(category string) TorrentAddOption {
+	return func(o *TorrentsAddOptions) {
+		o.Category = &category
+	}
+}
+
+func WithTags(tags []string) TorrentAddOption {
+	return func(o *TorrentsAddOptions) {
+		o.Tags = &tags
+	}
+}
+
+func WithStartPaused(startPaused bool) TorrentAddOption {
+	return func(o *TorrentsAddOptions) {
+		o.StartPaused = &startPaused
+	}
+}
+
+func WithAutoTMM(autoTMM bool) TorrentAddOption {
+	return func(o *TorrentsAddOptions) {
+		o.AutoTMM = &autoTMM
+	}
+}
+
 func (c *Client) TorrentsAddWithOptions(torrentFile string, fileData []byte, opts ...TorrentAddOption) error {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
