@@ -269,14 +269,21 @@ func (c *Client) TorrentsAdd(torrentFile string, fileData []byte) error {
 // These are not all the options, just the ones i need
 // documentation at: https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-4.1)#add-new-torrent
 type TorrentsAddOptions struct {
-	SavePath    *string
-	Category    *string
-	Tags        *[]string
-	StartPaused *bool
-	AutoTMM     *bool
+	SkipChecking *bool
+	SavePath     *string
+	Category     *string
+	Tags         *[]string
+	StartPaused  *bool
+	AutoTMM      *bool
 }
 
 type TorrentAddOption func(*TorrentsAddOptions)
+
+func WithSkipChecking(skipChecking bool) TorrentAddOption {
+	return func(o *TorrentsAddOptions) {
+		o.SkipChecking = &skipChecking
+	}
+}
 
 func WithSavePath(savePath string) TorrentAddOption {
 	return func(o *TorrentsAddOptions) {
@@ -312,9 +319,6 @@ func (c *Client) TorrentsAddWithOptions(torrentFile string, fileData []byte, opt
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 
-	// Default this to true
-	_ = writer.WriteField("skip_checking", "true") // Avoid recheck
-
 	part, err := writer.CreateFormFile("torrents", torrentFile)
 	if err != nil {
 		return fmt.Errorf("CreateFormFile error: %v", err)
@@ -327,6 +331,10 @@ func (c *Client) TorrentsAddWithOptions(torrentFile string, fileData []byte, opt
 
 	for _, opt := range opts {
 		opt(options)
+	}
+
+	if options.SkipChecking != nil {
+		_ = writer.WriteField("skip_checking", strconv.FormatBool(*options.SkipChecking))
 	}
 
 	if options.SavePath != nil {
